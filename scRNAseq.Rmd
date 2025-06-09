@@ -1,0 +1,388 @@
+---
+title: "Spatial multiomic landscape of the human placenta at molecular resolution"
+author: "Rachel Bozadjian"
+paper: "https://www.nature.com/articles/s41591-024-03073-9"
+data: "https://singlecell.broadinstitute.org/single_cell/study/SCP2601/human-placenta-architecture#study-download"
+sc_reference_data: "https://descartes.brotmanbaty.org/bbi/human-gene-expression-during-development/"
+cell_type_annotation_library: "https://cole-trapnell-lab.github.io/garnett/"
+editor_options:
+  markdown:
+    wrap: 100
+---
+
+```{r}
+# import libararies
+library(CellChat)
+library(clustree)
+library(DoubletFinder)
+library(dplyr)
+library(garnett)
+library(ggplot2)
+library(monocle3)
+library(org.Hs.eg.db)
+library(patchwork)
+library(scales)
+library(Seurat)
+library(SeuratDisk)
+library(SeuratObject)
+library(SeuratWrappers)
+library(tidyr)
+
+sessionInfo()
+```
+
+## preprocessing
+
+```{r}
+# read in single cell objects and create seurat object
+ref_obj <- readRDS("placenta_classifier.RDS")
+
+expr_matrix <- ReadMtx(
+  mtx = "./sc_data/matrix.mtx",
+  features = "./sc_data/genes.tsv",
+  cells = "./sc_data/barcodes.tsv",
+  feature.column = 1
+)
+
+# read in sc metadata
+metadata <- read.csv("./sc_data/metadata.csv")[-1,] %>%
+  mutate(NAME = gsub("#", "-", NAME))
+
+rownames(metadata) <- metadata$NAME
+
+seurat_object <- CreateSeuratObject(counts = expr_matrix, meta.data = metadata)
+```
+
+```{r}
+# preprocessing
+seurat_object[["percent.mt"]] <- PercentageFeatureSet(seurat_object, pattern = "^MT-")
+VlnPlot(seurat_object, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), layer = "counts", ncol = 3)
+```
+
+```{r}
+# number of cells and genes
+tibble(
+  n_cells = length(colnames(seurat_object)),
+  n_genes = length(rownames(seurat_object))
+)
+```
+
+## normalization and feature selection
+
+```{r}
+# count normalization and feature selection 
+seurat_object <- NormalizeData(seurat_object, normalization.method = "LogNormalize", scale.factor = 10000)
+seurat_object <- FindVariableFeatures(seurat_object, selection.method = "vst", nfeatures = 1000)
+```
+
+```{r, fig.width=12, fig.height=4}
+# plot top 10 variable features
+top10 <- head(VariableFeatures(seurat_object), 10)
+plot1 <- VariableFeaturePlot(seurat_object)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+```
+
+```{r}
+# scaling
+all.genes <- rownames(seurat_object)
+seurat_object <- ScaleData(seurat_object, features = all.genes)
+```
+
+## PCA
+
+```{r}
+# pca
+seurat_object <- RunPCA(seurat_object, features = VariableFeatures(object = seurat_object))
+DimPlot(seurat_object, reduction = "pca") + NoLegend()
+ElbowPlot(seurat_object)
+```
+```{r}
+# cells from each sample and total cells
+cell_counts <- table(seurat_object@meta.data$donor_id)
+cell_counts_df <- as.data.frame(cell_counts)
+colnames(cell_counts_df) <- c("Sample", "Cell_Count")
+cell_counts_df$Total_Cells <- sum(cell_counts_df$Cell_Count)
+print(cell_counts_df)
+```
+
+## clustering
+
+```{r}
+## clustering
+seurat_object <- FindNeighbors(seurat_object, dims = 1:10)
+seurat_object <- FindClusters(seurat_object, resolution = c(0.4, 0.5, 0.6, 0.8))
+
+# plot branching for different clustering resolutions
+clustree(seurat_object, prefix = "RNA_snn_res.")
+```
+```{r}
+# cluster with 0.5 resolution
+seurat_object <- FindClusters(seurat_object, resolution = 0.5)
+seurat_object <- RunUMAP(seurat_object, dims = 1:10, seed.use = 42)
+DimPlot(seurat_object, reduction = "umap")
+```
+
+```{r}
+# plot umap colored by donor_id
+DimPlot(seurat_object, reduction = "umap", group.by = "donor_id")
+```
+
+```{r fig.width=7, fig.height=10}
+# plot separate umap for each donor/sample and color by seurat cluster
+donor_ids <- unique(seurat_object$donor_id)
+
+plot_list <- lapply(donor_ids, function(donor) {
+  DimPlot(
+    seurat_object,
+    cells = WhichCells(seurat_object, expression = donor_id == donor),
+    group.by = "seurat_clusters"
+  ) +
+    ggtitle(paste("Donor:", donor)) +
+    NoLegend()
+})
+
+combined_plot <- wrap_plots(plotlist = plot_list, ncol = 2)
+print(combined_plot)
+```
+## doublet detection
+
+```{r}
+nExp_poi <- round(0.075*nrow(seurat_object@meta.data))
+
+seurat_object <- doubletFinder(seurat_object, PCs = 1:10, pN = 0.25, pK = 0.09, nExp = nExp_poi, reuse.pANN = NULL, sct = FALSE)
+
+seurat_object@meta.data
+
+DimPlot(seurat_object, group.by = "DF.classifications_0.25_0.09_2734", reduction = "umap") +
+  ggtitle("DoubletFinder Results")
+
+seurat_object <- subset(seurat_object, subset = DF.classifications_0.25_0.09_2734 == "Singlet")
+```
+
+## marker gene analysis
+
+```{r}
+# marker gene analysis
+all_markers <- FindAllMarkers(seurat_object, only.pos = TRUE)
+
+top5_markers <- all_markers %>%
+  filter(avg_log2FC > 1) %>%
+  group_by(cluster) %>%
+  slice_max(order_by = avg_log2FC, n = 5) %>%
+  ungroup()
+
+top5_summary <- top5_markers %>%
+  group_by(cluster) %>%
+  summarise(top_markers = paste(gene, collapse = ", "))
+
+print(top5_summary, n = Inf)
+```
+
+## automated cell type annotation
+
+```{r}
+# automated cell type annotation with garnett
+# convert seurat object to cell data set object for cell type annotation
+seurat_cds <- as.cell_data_set(seurat_object)
+
+# add seurat clusters to cds object
+colData(seurat_cds)$garnett_cluster <- seurat_object$seurat_clusters
+seurat_cds <- classify_cells(seurat_cds, ref_obj,
+                           db = org.Hs.eg.db,
+                           cluster_extend = TRUE,
+                           cds_gene_id_type = "SYMBOL")
+```
+
+```{r}
+# visualize clusters with cell type annotations in seurat
+seurat_object$garnett_type <- colData(seurat_cds)$cluster_ext_type
+DimPlot(seurat_object, group.by = "garnett_type", label = TRUE, repel = TRUE)
+```
+
+## manual cluster annotation
+
+```{r fig.width=12, fig.height=5}
+# dotplot of top 5 marker genes across all annotated cell types
+DotPlot(seurat_object, 
+        features = unique(top5_markers$gene), 
+        group.by = "garnett_type") +
+  ggtitle("Marker Expression by Cell Type") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+```{r fig.height=10}
+endo <- DotPlot(seurat_object,
+        features = c("KDR", "CDH5", "VWF", "PECAM1", "EMCN"),
+        group.by = "garnett_type") +
+  ggtitle("Endothelial Cell Marker Expression Across Clusters") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+cyto<- DotPlot(seurat_object,
+        features = c("KRT7", "EPCAM", "GATA3", "PSG3", "TFAP2C"),
+        group.by = "garnett_type") +
+  ggtitle("Cytotrophoblast Marker Expression Across Clusters") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+myeloid <-DotPlot(seurat_object,
+        features = c("LYZ", "CD68", "S100A8", "FCGR3A", "ITGAM"),
+        group.by = "garnett_type") +
+  ggtitle("Myeloid Cell Marker Expression Across Clusters") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+endo / cyto / myeloid
+```
+
+
+## cellchat analysis
+
+```{r}
+cellchat <- createCellChat(object = seurat_object, group.by = "garnett_type", assay = "RNA")
+CellChatDB <- CellChatDB.human
+CellChatDB.use <- subsetDB(CellChatDB, search = "Secreted Signaling", key = "annotation")
+cellchat@DB <- CellChatDB.use
+
+# subset the expression data of signaling genes for saving computation cost
+cellchat <- subsetData(cellchat)
+future::plan("multisession", workers = 1)
+cellchat <- identifyOverExpressedGenes(cellchat)
+cellchat <- identifyOverExpressedInteractions(cellchat)
+
+cellchat <- computeCommunProb(cellchat, type = "triMean")
+cellchat <- filterCommunication(cellchat, min.cells = 10)
+
+cellchat <- computeCommunProbPathway(cellchat)
+cellchat <- aggregateNet(cellchat)
+
+ptm = Sys.time()
+```
+
+```{r}
+# plot SPP1 signaling pathway
+netVisual_heatmap(cellchat, signaling = "SPP1", color.heatmap = "Reds")
+
+#saveRDS(cellchat, file = "cellchat.rds")
+```
+
+## pseudotime analysis
+
+```{r}
+
+#saveRDS(seurat_cds, file = "seurat.rds")
+seurat_cds <- readRDS("seurat.rds")
+seurat_cds <- cluster_cells(seurat_cds)
+seurat_cds <- learn_graph(seurat_cds, use_partition = FALSE)
+
+get_earliest_principal_node <- function(seurat_cds, time_bin="Cytotrophoblasts"){
+  cell_ids <- which(colData(seurat_cds)[, "cell_type"] == time_bin)
+
+  closest_vertex <-
+  seurat_cds@principal_graph_aux[["UMAP"]]$pr_graph_cell_proj_closest_vertex
+  closest_vertex <- as.matrix(closest_vertex[colnames(seurat_cds), ])
+  root_pr_nodes <-
+  igraph::V(principal_graph(seurat_cds)[["UMAP"]])$name[as.numeric(names
+  (which.max(table(closest_vertex[cell_ids,]))))]
+
+  root_pr_nodes
+}
+
+seurat_cds <- order_cells(seurat_cds, root_pr_nodes=get_earliest_principal_node(seurat_cds))
+```
+
+```{r}
+# filter unknown cell types
+seurat_cds_filtered <- seurat_cds[, seurat_cds@colData$cell_type != "Unknown"]
+
+plot_cells(seurat_cds_filtered,
+           color_cells_by = "cluster_ext_type",
+           label_cell_groups=FALSE,
+           label_leaves=TRUE,
+           label_branch_points=FALSE,
+           graph_label_size=2)
+
+```
+
+## spatial analysis
+
+```{r}
+# load spatial data
+expr_raw <- read.csv(gzfile("./spatial_data/humanplacenta_expression_raw.csv.gz"), row.names = 1)
+expr_norm <- read.csv(gzfile("./spatial_data/humanplacenta_expression.csv.gz"), row.names = 1)
+
+# Create Seurat object with raw counts
+slide.seq <- CreateSeuratObject(counts = as.matrix(expr_raw))
+
+# Assign normalized data to RNA slot
+slide.seq <- SetAssayData(slide.seq, assay = "RNA", slot = "data", new.data = as.matrix(expr_norm))
+
+# Load spatial metadata
+meta_spatial <- read.csv("./spatial_data/humanplacenta_spatial.csv", row.names = 1)
+
+# Ensure order matches expression columns
+meta_spatial <- meta_spatial[colnames(slide.seq), ]
+
+# Add spatial info to metadata
+slide.seq@meta.data$x <- as.numeric(meta_spatial$X)
+slide.seq@meta.data$y <- as.numeric(meta_spatial$Y)
+
+slide.seq$log_nCount_RNA <- log10(slide.seq$nCount_RNA + 1)
+```
+
+```{r}
+slide.seq <- NormalizeData(slide.seq, normalization.method = "LogNormalize", scale.factor = 10000)
+slide.seq <- FindVariableFeatures(slide.seq, selection.method = "vst", nfeatures = 1000)
+slide.seq <- ScaleData(slide.seq)
+slide.seq <- RunPCA(slide.seq)
+slide.seq <- RunUMAP(slide.seq, dims = 1:30)
+slide.seq <- FindNeighbors(slide.seq, dims = 1:30)
+slide.seq <- FindClusters(slide.seq, resolution = 0.3, verbose = FALSE)
+```
+
+```{r}
+# from seurat slideseq vignette
+
+anchors <- FindTransferAnchors(
+  reference = seurat_object,
+  query = slide.seq,
+  normalization.method = "LogNormalize",
+  npcs = 50
+)
+
+predictions.assay <- TransferData(
+  anchorset = anchors,
+  refdata = seurat_object$garnett_type,
+  prediction.assay = TRUE,
+  weight.reduction = slide.seq[["pca"]],
+  dims = 1:50
+)
+
+slide.seq[["predictions"]] <- predictions.assay
+DefaultAssay(slide.seq) <- "predictions"
+
+slide.seq$predicted.id <- GetTransferPredictions(slide.seq)
+Idents(slide.seq) <- "predicted.id"
+
+spatial_scatter <- ggplot() +
+  geom_point(
+    data = slide.seq@meta.data,
+    aes(x = x, y = y, colour = predicted.id),
+    alpha = 0.3
+  ) +
+  geom_point(
+    data = slide.seq@meta.data %>% filter(predicted.id != "Unassigned"),
+    aes(x = x, y = y, colour = predicted.id)
+  ) +
+  facet_wrap(~ orig.ident) +
+  labs(
+    title = "Integrated scRNA-seq Cell Type Labels and Slide-Tags Spatial Coordinates by Sample",
+    colour = "Predicted Cell Type"
+  ) +
+  theme_minimal()
+
+spatial_scatter
+
+```
+
