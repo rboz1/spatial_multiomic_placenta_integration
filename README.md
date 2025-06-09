@@ -11,7 +11,7 @@
 
 
 <!-- PROJECT LOGO -->
-  <h3 align="center">Spatial Multiomic Integration in Human Placenta</h3>
+  <h3 align="center">Spatial + scRNA-seq Integration in Human Placenta</h3>
 
   <p align="center">
     A comprehensive workflow for spatial multiomic integration of the human placenta.
@@ -47,7 +47,7 @@
 ## About The Project
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-This project provides a comprehensive workflow for spatial multiomic integration of the human placenta. It includes preprocessing, clustering, annotation, cell-cell communication analysis, pseudotime trajectory inference, and integration of spatial transcriptomics data to visualize cell type distributions in the placenta.
+This project provides a comprehensive workflow for spatial + scRNA-seq integration of the human placenta. It includes preprocessing, clustering, annotation, cell-cell communication analysis, pseudotime trajectory inference, and integration of spatial transcriptomics data to visualize cell type distributions in the placenta.
 
 ### Built With
 
