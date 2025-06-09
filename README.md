@@ -14,7 +14,7 @@
   <h3 align="center">Spatial + scRNA-seq Integration in Human Placenta</h3>
 
   <p align="center">
-    A comprehensive workflow for spatial multiomic integration of the human placenta.
+    A comprehensive workflow for scRNA-seq analysis with spatial transcriptomics integration in human placenta.
   </p>
 </div>
 
