@@ -45,9 +45,6 @@
 
 <!-- ABOUT THE PROJECT -->
 ## About The Project
-
-
-
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 This project provides a comprehensive workflow for spatial multiomic integration of the human placenta. It includes preprocessing, clustering, annotation, cell-cell communication analysis, pseudotime trajectory inference, and integration of spatial transcriptomics data to visualize cell type distributions in the placenta.
@@ -57,8 +54,6 @@ This project provides a comprehensive workflow for spatial multiomic integration
 - R 
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
-
-
 
 <!-- GETTING STARTED -->
 ## Getting Started
@@ -76,6 +71,12 @@ This project provides a comprehensive workflow for spatial multiomic integration
    ```sh
    install.packages(c("Seurat", "ggplot2", "dplyr", "tidyr", "patchwork"))
    BiocManager::install(c("monocle3", "org.Hs.eg.db", "garnett", "CellChat", "DoubletFinder"))
+
+## Usage
+![garnett_type_umap](https://github.com/user-attachments/assets/e5ea6346-3666-4a1a-b58b-dcea5a94b31e)
+<img width="896" alt="cellchat" src="https://github.com/user-attachments/assets/5db7d666-bf06-46d9-9301-fe2bb661546a" />
+<img width="669" alt="Screenshot 2025-06-09 at 10 27 23 AM" src="https://github.com/user-attachments/assets/de641710-21dc-4e27-a00d-ff5636c17da4" />
+
 
 <!-- CONTACT -->
 ## Contact
