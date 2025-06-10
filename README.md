@@ -65,7 +65,7 @@ This project provides a comprehensive workflow for spatial + scRNA-seq integrati
 
 1. Clone the repo
    ```sh
-   git clone https://github.com/rboz1/spatial_multiomic_placenta_integration.git
+   git clone https://github.com/rboz1/placenta_multimodal_transcriptomics.git
    
 2. Install required R packages (run inside R)
    ```sh
